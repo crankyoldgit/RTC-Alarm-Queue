@@ -1,0 +1,73 @@
+#!/bin/bash
+# Update the RTC alarm with a new time. Add it to the queue.
+# Remove any old alarms from the queue.
+# If there is an earlier time in the queue, set the RTC alarm to that.
+RTC_ALARM_FILE='/sys/class/rtc/rtc0/wakealarm'
+QUEUE_DIR='/var/spool/rtcalarm'
+QUEUE_FILE="${QUEUE_DIR}/queue"
+
+umask 022
+
+function IsDigits () {
+  [[ -n "$1" && -z "${1//[0-9]}" ]]
+}
+
+function Usage {
+  /bin/cat 1>&2 <<EOM
+Usage: $0 [seconds_since_epoch]
+  seconds_since_epoch: The time you want the system to awaken via the
+                       Real-Time Clock Alarm in seconds since epoch.
+EOM
+  exit 1
+}
+
+if [[ $# -gt 1 ]]; then
+  Usage
+fi
+if [[ $# -eq 1 ]]; then
+  if ! IsDigits "$1"; then
+    Usage
+  fi
+fi
+new_wake_time="${1:-0}"
+
+if [[ ! -r "${RTC_ALARM_FILE}" ]]; then
+  echo "${RTC_ALARM_FILE} doesn't exist or is not readable by you." 1>&2
+  exit 2
+fi
+if [[ ! -w "${RTC_ALARM_FILE}" ]]; then
+  echo "${RTC_ALARM_FILE} is not writeable by you." 1>&2
+  exit 3
+fi
+
+if [[ ! -d "${QUEUE_DIR}" ]]; then
+  /bin/mkdir -p "${QUEUE_DIR}"
+fi
+
+/usr/bin/touch "${QUEUE_FILE}"
+
+if [[ -r "${QUEUE_FILE}" ]]; then
+  queue=$( (echo $new_wake_time; /bin/cat "${RTC_ALARM_FILE}" ; /bin/cat "${QUEUE_FILE}") | sort -un)
+fi
+
+# Remove any times that are before 'now' as they are now pointless
+now=$(/bin/date +%s)
+trimmed_queue=""
+for seconds in ${queue}; do
+  if [[ ${seconds} -gt ${now} ]]; then
+    trimmed_queue="${trimmed_queue} ${seconds}"
+  fi
+done
+
+# Output the new queue
+(for seconds in ${trimmed_queue}; do
+  echo ${seconds}
+done) >"${QUEUE_FILE}"
+
+next_wake=$(/usr/bin/head -1 "${QUEUE_FILE}")
+
+if [[ -n ${next_wake} ]]; then
+  echo "0" >"${RTC_ALARM_FILE}"
+  echo "${next_wake}" >"${RTC_ALARM_FILE}"
+fi
+exit 0
