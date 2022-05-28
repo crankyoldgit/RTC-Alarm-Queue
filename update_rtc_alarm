@@ -8,7 +8,7 @@ QUEUE_FILE="${QUEUE_DIR}/queue"
 
 umask 022
 
-function IsDigits () {
+function IsDigits (;;) {
   [[ -n "$1" && -z "${1//[0-9]}" ]]
 }
 
